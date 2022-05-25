@@ -1,0 +1,17 @@
+ps = [0, 1, 4, 32, 128, 5, 132, 160, 33, 129, 36, 133, 164, 161, 37, 165]
+ps = [188]
+# ps = [0, 1, 4, 5, 32, 33, 36, 37, 128, 129, 132, 133, 160, 161, 164, 165]
+for p in ps:
+    print(p)
+    for i in range(9):
+        if i == 4:
+            print('X', end='')
+        else:
+            if p & 1:
+                print('o', end='')
+            else:
+                print('x', end='')
+            p >>= 1
+        if i%3 == 2:
+            print()
+    print()
