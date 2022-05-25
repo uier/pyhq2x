@@ -1,6 +1,4 @@
-#!/usr/bin/env python
-
-import Image
+from PIL import Image
 
 # Constants for indicating coordinates in a pixel's context
 TOP_LEFT = 0
@@ -13,15 +11,6 @@ BOTTOM_LEFT = 6
 BOTTOM = 7
 BOTTOM_RIGHT = 8
 
-# There are eight flags: the cells in the context, skipping the center
-context_flag = {}
-cur_flag = 1
-for i in xrange(9):
-    if i == CENTER:
-        continue
-    context_flag[i] = cur_flag
-    cur_flag = cur_flag << 1
-
 # Constants defining how far apart two components of YUV colors must be to be
 # considered different
 Y_THRESHHOLD = 48
@@ -30,12 +19,8 @@ V_THRESHHOLD = 6
 
 rgb_yuv_cache = {}  # memoization
 def rgb_to_yuv(rgb):
-    """Takes a tuple of (r, g, b) and returns a tuple (y, u, v).  Both must be
-    24-bit color!
-
-    This is the algorithm from the original hq2x source; it doesn't seem to
-    match any other algorithm I can find, but whatever.
-    """
+    # This is the algorithm from the original hq2x source; it doesn't seem to
+    # match any other algorithm I can find, but whatever.
 
     if rgb in rgb_yuv_cache:
         return rgb_yuv_cache[rgb]
@@ -101,7 +86,6 @@ def hq2x(source):
     """
 
     w, h = source.size
-    mode = source.mode  # XXX use this for the target I guess somehow; palette?
     source = source.convert('RGB')
     dest = Image.new('RGB', (w * 2, h * 2))
 
@@ -109,39 +93,32 @@ def hq2x(source):
     sourcegrid = source.load()
     destgrid = dest.load()
 
-    # Wrap sourcegrid in a function to cap the coordinates; we need a 3x3 array
-    # centered on the current pixel, and factoring out the capping is simpler
-    # than a ton of ifs
     def get_px(x, y):
-        if x < 0:
-            x = 0
-        elif x >= w:
-            x = w - 1
-
-        if y < 0:
-            y = 0
-        elif y >= h:
-            y = h - 1
+        x = max(0, min(x, w - 1))
+        y = max(0, min(y, h - 1))
 
         return sourcegrid[x, y]
 
-    for x in xrange(w):
-        for y in xrange(h):
-            # This is a flattened 3x3 grid with the current pixel in the
-            # middle; if the pixel is on an edge, the row/column in the void is
-            # just a copy of the edge
+    for x in range(w):
+        for y in range(h):
+            # The first step is an analysis of the 3x3 area of the source pixel.
+            # At first, we calculate the color difference between the central pixel 
+            # and its 8 nearest neighbors.
+            # Then that difference is compared to a predefined threshold, and these 
+            # pixels are sorted into twocategories: "close" and "distant" colored. 
+            # There are 8 neighbors, so we are getting 256 possible combinations.
             context = [
                 get_px(x - 1, y - 1), get_px(x, y - 1), get_px(x + 1, y - 1),
                 get_px(x - 1, y    ), get_px(x, y    ), get_px(x + 1, y    ),
                 get_px(x - 1, y + 1), get_px(x, y + 1), get_px(x + 1, y + 1),
             ]
 
-            tl, tr, bl, br = hq2x_pixel(context)
+            top_left, top_right, bottom_left, bottom_right = hq2x_pixel(context)
 
-            destgrid[x * 2, y * 2] = tl
-            destgrid[x * 2 + 1, y * 2] = tr
-            destgrid[x * 2, y * 2 + 1] = bl
-            destgrid[x * 2 + 1, y * 2 + 1] = br
+            destgrid[x * 2    , y * 2    ] = tuple(map(round, top_left))
+            destgrid[x * 2 + 1, y * 2    ] = tuple(map(round, top_right))
+            destgrid[x * 2    , y * 2 + 1] = tuple(map(round, bottom_left))
+            destgrid[x * 2 + 1, y * 2 + 1] = tuple(map(round, bottom_right))
 
     return dest
 
@@ -159,12 +136,15 @@ def hq2x_pixel(context):
     # top middle is 0x2, and so on across and down.  Bits turned on
     # indicate a pixel different from the current pixel
     yuv_context = [rgb_to_yuv(rgb) for rgb in context]
-    yuv_px = rgb_to_yuv(context[CENTER])
+    yuv_center = rgb_to_yuv(context[CENTER])
 
-    pattern = 0
-    for bit in xrange(9):
-        if bit != CENTER and not yuv_equal(yuv_context[bit], yuv_px):
-            pattern = pattern | context_flag[bit]
+    pattern, flag = 0, 1
+    for bit in range(9):
+        if bit == CENTER:
+            continue
+        if not yuv_equal(yuv_context[bit], yuv_center):
+            pattern = pattern | flag
+        flag <<= 1
 
     if pattern in (0, 1, 4, 32, 128, 5, 132, 160, 33, 129, 36, 133, 164, 161, 37, 165):
         tl = interp2(context[CENTER], context[LEFT], context[TOP])
